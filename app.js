@@ -4,7 +4,7 @@ import {
   esc, cap, normCode, safeColor, initial, listNames,
   dayKey, parseDay, todayDate, todayKey, addDays, addMonths,
   shortDay, longDay, weekdayName, slotById, whenText, msgTime,
-  statusOf, manualStatusOf, derivedOf, daysToBirthday, birthdayText, buildIcs, googleCalendarUrl, compressImage,
+  statusOf, manualStatusOf, derivedOf, statusDetail, statusClass, daysToBirthday, birthdayText, buildIcs, googleCalendarUrl, compressImage,
 } from './util.js';
 import {
   googleEnabled, startGoogleAuth, consumeGoogleRedirect, getToken, disconnectGoogle, isAuthError,
@@ -33,6 +33,7 @@ const state = {
   planId: null, planUnsub: null, planExtras: null,
   sheetKind: null, sheetDay: null,
   greeted: new Set(),
+  calView: null,
 };
 
 // ───────────────────────── Utilidades de la interfaz ─────────────────────────
@@ -41,6 +42,7 @@ const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignorar */ } },
 };
+state.calView = LS.get('nosvemos.calview', 'all');
 const getMemberships = () => LS.get('nosvemos.groups', []);
 const setMemberships = (v) => LS.set('nosvemos.groups', v);
 
@@ -434,8 +436,18 @@ function dayInfo(k) {
   };
 }
 
+function personRows(k) {
+  const { members } = state.data;
+  const ordered = [me(), ...members.filter((m) => m.id !== state.memberId)];
+  const shown = ordered.slice(0, 6);
+  return `<span class="people">${shown.map((m) => `
+    <span class="prow"><i class="pdot" style="--c:${safeColor(m.color)}"></i>${SLOTS.map((s) => `<i class="pbar ${statusClass(m, `${k}_${s.id}`)}"></i>`).join('')}</span>`).join('')}
+    ${ordered.length > 6 ? `<span class="pmore">+${ordered.length - 6}</span>` : ''}</span>`;
+}
+
 function viewCal() {
   const mine = me();
+  const all = state.calView !== 'me';
   const first = state.month;
   const minMonth = addMonths(todayDate(), 0);
   const maxMonth = addMonths(minMonth, MONTHS_AHEAD - 1);
@@ -453,11 +465,11 @@ function viewCal() {
     const marks = past ? '' : `${hasShift ? '💼' : ''}${info.bdays.length ? '🎂' : ''}${info.plans.length ? '🎉' : ''}${info.allSure ? '✨' : ''}`;
     const wd = d.getDay();
     cells += `
-      <button class="cell ${past ? 'past' : ''} ${k === tk ? 'today' : ''} ${wd === 0 || wd === 6 ? 'weekend' : ''} ${info?.allSure ? 'match' : info?.allPossible ? 'match-maybe' : ''}"
+      <button class="cell ${past ? 'past' : ''} ${k === tk ? 'today' : ''} ${wd === 0 || wd === 6 ? 'weekend' : ''} ${info?.allSure ? 'all-sure' : info?.allPossible ? 'all-maybe' : ''}"
         data-action="day" data-day="${k}" ${past ? 'disabled' : ''} aria-label="${longDay(k)}">
         <span class="cell-num">${i}</span>
         <span class="cell-marks">${marks}</span>
-        <span class="bars">${SLOTS.map((s) => `<i class="bar ${STATUS[statusOf(mine, `${k}_${s.id}`)]?.cls || ''}"></i>`).join('')}</span>
+        ${past ? '' : all ? personRows(k) : `<span class="bars">${SLOTS.map((s) => `<i class="bar ${statusClass(mine, `${k}_${s.id}`)}"></i>`).join('')}</span>`}
       </button>`;
   }
 
@@ -470,7 +482,11 @@ function viewCal() {
     <button class="cal-connect" data-action="connect">
       <span>📆 <strong>Mis calendarios</strong> <span class="muted small">${calStatus || 'Conecta Google, Shifter o añade eventos'}</span></span><span class="chev">›</span>
     </button>
-    <div class="cal card">
+    <div class="segmented">
+      <button class="${all ? 'on' : ''}" data-action="cal-view" data-view="all">👭 Todas</button>
+      <button class="${all ? '' : 'on'}" data-action="cal-view" data-view="me">👤 Solo yo</button>
+    </div>
+    <div class="cal card ${all ? 'all' : ''}">
       <div class="cal-head">
         <button class="icon-btn" data-action="month" data-d="-1" ${first <= minMonth ? 'disabled' : ''} aria-label="Mes anterior">‹</button>
         <h2>${cap(MONTHS[first.getMonth()])} <span class="muted">${first.getFullYear()}</span></h2>
@@ -482,10 +498,13 @@ function viewCal() {
       </div>
     </div>
     <div class="legend card">
-      <div><span class="bars demo"><i class="bar yes"></i><i class="bar maybe"></i><i class="bar no"></i></span> Tu mañana, tarde y noche:
-        <span class="dot yes"></span> libre <span class="dot maybe"></span> quizás <span class="dot no"></span> no puedo</div>
-      <div><span class="legend-box match"></span> Podéis todas ✨ <span class="legend-box match-maybe"></span> Podríais todas (con algún quizás)</div>
-      <div>💼 Tienes turno · 🎉 Hay plan · 🎂 Cumpleaños</div>
+      ${all ? `
+      <div>Cada fila es una persona, con su color. Las rayitas son mañana, tarde y noche:</div>
+      <div class="legend-people">${[mine, ...state.data.members.filter((m) => m.id !== state.memberId)].map((m) => `<span><i class="pdot" style="--c:${safeColor(m.color)}"></i> ${esc(m.id === state.memberId ? 'Tú' : m.name)}</span>`).join('')}</div>` : `
+      <div><span class="bars demo"><i class="bar yes"></i><i class="bar maybe"></i><i class="bar no"></i></span> Tu mañana, tarde y noche:</div>`}
+      <div><span class="dot yes"></span> libre <span class="dot maybe"></span> quizás <span class="dot no"></span> no puede <span class="dot shift"></span> turno <span class="dot unset"></span> sin marcar</div>
+      <div><span class="legend-box all-sure"></span> Podéis todas ✨ <span class="legend-box all-maybe"></span> Podríais todas (con algún quizás)</div>
+      <div>💼 Tienes turno · 🎉 Hay plan · 🎂 Cumpleaños · Toca un día para ver el detalle</div>
     </div>`;
 }
 
@@ -498,6 +517,8 @@ function openDaySheet(k) {
       <div class="sheet-grab"></div>
       <h2>${esc(longDay(k))}</h2>
       <div id="day-extra"></div>
+      <div id="day-group"></div>
+      <h3 class="sheet-sub you-title">✏️ Tú</h3>
       <div id="day-shift"></div>
       <div id="day-slots"></div>
       <label>📝 Nota para este día <span class="muted">(opcional)</span>
@@ -552,12 +573,29 @@ function renderDaySheetParts() {
   }).join('');
 
   const info = dayInfo(k);
-  const notes = others.filter((o) => o.notes?.[k]).map((o) => `<div class="note-line">${avatar(o)} <span><strong>${esc(o.name)}:</strong> ${esc(o.notes[k])}</span></div>`);
   sheet.querySelector('#day-extra').innerHTML = [
     ...info.bdays.map((m) => `<div class="pill">🎂 ¡Es el cumple de ${esc(m.id === state.memberId ? 'ti' : m.name)}!</div>`),
     ...info.plans.map((p) => `<button class="pill pill-btn" data-action="open-plan" data-plan="${esc(p.id)}">🎉 ${esc(p.title)} · ${slotById(p.slot).label.toLowerCase()} ›</button>`),
-    notes.length ? `<div class="notes">${notes.join('')}</div>` : '',
   ].join('');
+
+  // Cómo lo tiene cada una ese día
+  const people = [mine, ...others];
+  const cellFor = (m, sid) => {
+    const { s, src } = statusDetail(m, `${k}_${sid}`);
+    const icon = !s ? '·' : s === 'y' ? '✅' : s === 'm' ? '🤔' : src === 'shift' ? '💼' : src === 'gcal' || src === 'event' ? '📆' : '🙅';
+    const title = !s ? 'Sin marcar' : s === 'y' ? 'Libre' : s === 'm' ? 'Quizás' : src === 'shift' ? 'Turno de trabajo' : src === 'manual' ? 'No puede' : 'Ocupada en su calendario';
+    return `<span class="gd-cell ${statusClass(m, `${k}_${sid}`)}" title="${title}" aria-label="${title}">${icon}</span>`;
+  };
+  sheet.querySelector('#day-group').innerHTML = `
+    <div class="group-day">
+      <div class="gd-row gd-head"><span class="gd-title">👭 Cómo lo tenéis</span>${SLOTS.map((s) => `<span class="gd-col" title="${s.label}">${s.emoji}</span>`).join('')}</div>
+      ${people.map((m) => `
+        <div class="gd-row">
+          <span class="gd-who">${avatar(m)}<span class="gd-name">${esc(m.id === state.memberId ? 'Tú' : m.name)}${m.notes?.[k] ? `<small>📝 ${esc(m.notes[k])}</small>` : ''}</span></span>
+          ${SLOTS.map((s) => cellFor(m, s.id)).join('')}
+        </div>`).join('')}
+      <p class="muted tiny gd-legend">✅ libre · 🤔 quizás · 🙅 no puede · 💼 turno · 📆 ocupada en su calendario · · sin marcar</p>
+    </div>`;
 }
 
 function saveDayNote() {
@@ -1377,6 +1415,11 @@ function onAction(b) {
       renderGroup();
       window.scrollTo({ top: 0 });
       break;
+    case 'cal-view':
+      state.calView = b.dataset.view;
+      LS.set('nosvemos.calview', state.calView);
+      renderGroup();
+      break;
     case 'month':
       state.month = addMonths(state.month, Number(b.dataset.d));
       renderGroup();
@@ -1427,7 +1470,13 @@ function onAction(b) {
       saveMyCal({ shifts });
       if (navigator.vibrate) navigator.vibrate(8);
       renderDaySheetParts();
-      busy(null, () => publishMyCal());
+      const key = `${day}_${b.dataset.slot}`;
+      const clearManual = set.has(b.dataset.slot) && manualStatusOf(me(), key);
+      busy(null, async () => {
+        // Si al poner un turno tenías esa franja marcada a mano, manda el turno.
+        if (clearManual) await s.setStatus(g, state.memberId, key, null);
+        await publishMyCal();
+      });
       break;
     }
     case 'day-all':

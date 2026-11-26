@@ -163,6 +163,21 @@ export function manualStatusOf(member, key) {
   return null;
 }
 
+/** Estado y de dónde sale: { s: 'y'|'m'|'n'|null, src: 'manual'|'shift'|'gcal'|'event'|null } */
+export function statusDetail(member, key) {
+  const manual = manualStatusOf(member, key);
+  if (manual) return { s: manual, src: 'manual' };
+  const d = derivedOf(member)[key];
+  return d ? { s: d.s, src: d.src } : { s: null, src: null };
+}
+
+/** Clase visual de una franja: libre, quizás, no puede, turno o sin marcar. */
+export function statusClass(member, key) {
+  const { s, src } = statusDetail(member, key);
+  if (s === 'n' && src === 'shift') return 'shift';
+  return STATUS[s]?.cls || '';
+}
+
 /** Estado final de una persona en una franja: manda lo marcado a mano; si no, lo que diga su calendario. */
 export function statusOf(member, key) {
   return manualStatusOf(member, key) ?? derivedOf(member)[key]?.s ?? null;
