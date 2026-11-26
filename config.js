@@ -10,12 +10,12 @@
 // ─────────────────────────────────────────────────────────────
 
 export const firebaseConfig = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
+  apiKey: "AIzaSyBmTUisOka3GRYN7i-No2K6oMOwWvNaWq0",
+  authDomain: "nos-vemos-37922.firebaseapp.com",
+  projectId: "nos-vemos-37922",
+  storageBucket: "nos-vemos-37922.firebasestorage.app",
+  messagingSenderId: "911424097429",
+  appId: "1:911424097429:web:db13ce67677616a359df9c",
 };
 
 // ─────────────────────────────────────────────────────────────

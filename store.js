@@ -33,15 +33,12 @@ const byAt = (a, b) => (a.at || 0) - (b.at || 0);
 
 // ───────────────────────── Firebase ─────────────────────────
 
-const FIREBASE_VERSION = '10.12.2';
-
 async function createFirebaseStore() {
-  const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}`;
-  const [{ initializeApp }, authMod, fs] = await Promise.all([
-    import(`${base}/firebase-app.js`),
-    import(`${base}/firebase-auth.js`),
-    import(`${base}/firebase-firestore.js`),
-  ]);
+  // La librería de Firebase va incluida en la app (vendor/firebase.js), así no depende de otra web.
+  const fb = await import('./vendor/firebase.js');
+  const { initializeApp } = fb;
+  const authMod = fb;
+  const fs = fb;
 
   const app = initializeApp(firebaseConfig);
   const auth = authMod.getAuth(app);
