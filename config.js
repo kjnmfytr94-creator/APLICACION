@@ -26,4 +26,4 @@ export const firebaseConfig = {
 //  conectar Google Calendar aparece desactivada.
 // ─────────────────────────────────────────────────────────────
 
-export const googleClientId = "";
+export const googleClientId = "911424097429-a4m6slkk3bn6gfivlcsn2pn92vcu0dcg.apps.googleusercontent.com";
