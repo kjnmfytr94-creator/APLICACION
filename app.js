@@ -142,24 +142,57 @@ async function boot() {
   if (g?.ok) state.pendingGoogle = g.then || 'choose';
   else if (g) setTimeout(() => toast(g.error === 'access_denied' ? 'No se ha conectado Google Calendar 🙅' : 'No se pudo conectar con Google 😕 Inténtalo otra vez'), 600);
 
+  // Pedimos al navegador que no borre lo que guardamos (en iPhone ayuda a no perder tus grupos).
+  try { navigator.storage?.persist?.(); } catch { /* da igual */ }
+
   const params = new URLSearchParams(location.search);
   const invite = normCode(params.get('g'));
-  if (invite) history.replaceState(null, '', location.pathname);
+  const urlMember = (params.get('m') || '').replace(/[^a-z0-9]/g, '');
 
   const memberships = getMemberships();
   if (invite) {
     const mine = memberships.find((x) => x.groupId === invite);
-    return mine ? openGroup(mine) : renderHome({ code: invite });
+    if (mine) return openGroup(mine);
+    // El icono de la pantalla de inicio recuerda quién eras: entrar con un toque.
+    if (urlMember) return renderWelcomeBack(invite, urlMember);
+    return renderHome({ code: invite });
   }
   const current = LS.get('nosvemos.current', null);
   const m = memberships.find((x) => x.groupId === current) || memberships[0];
   if (m) openGroup(m); else renderHome();
 }
 
+/** La URL guarda el grupo y la persona, así el icono de inicio "recuerda" el grupo aunque se borre la memoria. */
+function rememberInUrl(groupId, memberId) {
+  try { history.replaceState(null, '', groupId ? `${location.pathname}?g=${groupId}&m=${memberId}` : location.pathname); } catch { /* da igual */ }
+}
+
+async function renderWelcomeBack(groupId, memberId) {
+  let group;
+  let member;
+  try {
+    group = await state.store.getGroup(groupId);
+    member = group && (await state.store.getMembers(groupId)).find((x) => x.id === memberId);
+  } catch (e) { console.error(e); }
+  if (!group || !member) { rememberInUrl(null); return renderHome({ code: group ? groupId : '' }); }
+  app.innerHTML = `
+    <div class="home">
+      <div class="hero">
+        <img src="icons/icon-192.png" alt="" class="hero-icon">
+        <h1>¡Hola de nuevo! 👋</h1>
+        <p>Tu grupo <strong>«${esc(group.name)}»</strong> te está esperando.</p>
+      </div>
+      <button class="btn primary block big-btn" data-action="claim" data-group="${esc(groupId)}" data-member="${esc(memberId)}">
+        ${avatar(member)} Entrar como ${esc(member.name)}</button>
+      <button class="btn link block" data-action="not-me" data-group="${esc(groupId)}">No soy ${esc(member.name)}</button>
+    </div>`;
+}
+
 // ───────────────────────── Inicio: crear o unirse ─────────────────────────
 
 function renderHome({ code = '', message = '' } = {}) {
   closeGroup();
+  rememberInUrl(null);
   const mine = getMemberships();
   const join = `
     <form class="card" id="join-form">
@@ -289,6 +322,7 @@ function openGroup({ groupId, memberId }) {
   state.memberId = memberId;
   state.month = addMonths(todayDate(), 0);
   LS.set('nosvemos.current', groupId);
+  rememberInUrl(groupId, memberId);
   app.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   state.unsub = state.store.subscribe(groupId, (data) => {
@@ -1338,6 +1372,7 @@ function onAction(b) {
       break;
     }
     case 'home': closeSheet(); renderHome(); break;
+    case 'not-me': renderHome({ code: b.dataset.group }); break;
     case 'claim': {
       const groupId = b.dataset.group;
       const memberId = b.dataset.member;

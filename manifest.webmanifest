@@ -3,7 +3,6 @@
   "short_name": "Nos vemos",
   "description": "Marcad cuándo podéis y encontrad el mejor momento para veros.",
   "lang": "es",
-  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f5efe6",

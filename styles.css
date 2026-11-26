@@ -525,3 +525,6 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 .seg-btn.no.auto { border-color: var(--no); color: var(--no); background: var(--no-soft); }
 .seg-btn.maybe.auto { border-color: var(--maybe); color: color-mix(in srgb, var(--maybe) 70%, var(--text)); background: var(--maybe-soft); }
 .auto-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+.big-btn { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 18px; padding: 16px; }
+.big-btn .avatar { border-color: transparent; }
