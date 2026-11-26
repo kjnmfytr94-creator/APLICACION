@@ -4,7 +4,8 @@
 //
 // Estructura:
 //  groups/{grupo}                      { name }
-//  groups/{grupo}/members/{persona}    { name, color, birthday 'MM-DD', free { 'AAAA-MM-DD_t': 'y'|'m'|'n' }, notes { 'AAAA-MM-DD': texto } }
+//  groups/{grupo}/members/{persona}    { name, color, birthday 'MM-DD', free { 'AAAA-MM-DD_t': 'y'|'m'|'n' }, notes { 'AAAA-MM-DD': texto },
+//                                        events { id: { title, day, allDay, start, end, weekly } }, gcal { 'AAAA-MM-DD_t': 'n'|'m' }, gcalAt }
 //  groups/{grupo}/plans/{plan}         { title, kind 'fixed'|'poll', day, slot, time, place, options[], votes{}, going{}, createdBy, at, msgCount, photoCount, cover }
 //  groups/{grupo}/plans/{plan}/messages/{id}   { by, text, at }
 //  groups/{grupo}/plans/{plan}/photos/{id}     { by, at, thumb }
@@ -68,16 +69,17 @@ async function createFirebaseStore() {
     async getMembers(g) {
       return list(await fs.getDocs(fs.collection(db, 'groups', g, 'members')));
     },
-    async addMember(g, { name, color, birthday }) {
+    async addMember(g, { name, color, birthday, events, gcal, gcalAt }) {
       const id = newId();
-      const data = { name, color, free: {}, notes: {}, at: Date.now() };
+      const data = { name, color, free: {}, notes: {}, events: events || {}, gcal: gcal || {}, at: Date.now() };
       if (birthday) data.birthday = birthday;
+      if (gcalAt) data.gcalAt = gcalAt;
       await fs.setDoc(memberRef(g, id), data);
       return id;
     },
     async updateMember(g, m, patch) {
-      const p = { ...patch };
-      if ('birthday' in p) p.birthday = del(p.birthday);
+      const p = {};
+      for (const [k, v] of Object.entries(patch)) p[k] = del(v);
       await fs.updateDoc(memberRef(g, m), p);
     },
     async removeMember(g, m) {
@@ -204,9 +206,12 @@ function createLocalStore() {
     async getMembers(g) {
       return structuredClone(entries(group(g).members));
     },
-    async addMember(g, { name, color, birthday }) {
+    async addMember(g, { name, color, birthday, events, gcal, gcalAt }) {
       const id = newId();
-      group(g).members[id] = { name, color, free: {}, notes: {}, at: Date.now(), ...(birthday ? { birthday } : {}) };
+      group(g).members[id] = {
+        name, color, free: {}, notes: {}, events: events || {}, gcal: gcal || {}, at: Date.now(),
+        ...(birthday ? { birthday } : {}), ...(gcalAt ? { gcalAt } : {}),
+      };
       commit();
       return id;
     },

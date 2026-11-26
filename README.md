@@ -5,6 +5,16 @@ cuándo coincidís.
 
 ## Qué hace
 
+- **👋 Al entrar en un grupo** cada persona pone su nombre, elige su color (sin repetir) y su
+  cumpleaños, y la app le ofrece traer lo que ya tiene en sus calendarios:
+  - **➕ Añadir un evento** (médico, clases, un viaje…), que puede repetirse cada semana.
+  - **🗓️ Conectar Google Calendar** (solo lectura).
+  - **🔄 Conectar Shifter (Calendario de Turnos)**: Shifter exporta los turnos a Google Calendar,
+    y desde ahí llegan a la app.
+
+  Las franjas en las que está ocupada se marcan solas como «No puedo» (o «Quizás» si solo está
+  ocupada un rato), y siempre se pueden cambiar a mano. **Los títulos de los eventos de Google no
+  se guardan ni se comparten**: solo qué franjas están ocupadas.
 - **📅 Calendario:** un calendario mensual en el que tocas un día y, para la mañana, la tarde y
   la noche, eliges **✅ Libre**, **🤔 Quizás** o **🙅 No puedo**. Puedes añadir una nota a cada día
   ("solo hasta las 19h"). Cada día muestra tres rayitas de colores con tu estado, un borde verde si
@@ -93,7 +103,40 @@ datos de las demás y **2)** publicar la app en internet con GitHub Pages para t
 > GitHub Pro o hacerlo público. No pasa nada por que el código sea público: los datos del grupo
 > están en Firebase, no en GitHub.
 
-### 3. Instalarla en el iPhone
+### 3. (Opcional) Activar «Conectar Google Calendar» y Shifter
+
+Sin este paso todo funciona, pero el botón de Google Calendar aparece desactivado.
+
+1. Entra en <https://console.cloud.google.com> y elige **el mismo proyecto que creaste en Firebase**
+   (arriba a la izquierda).
+2. **Activa la API:** menú ☰ → **APIs y servicios → Biblioteca** → busca **Google Calendar API** →
+   **Habilitar**.
+3. **Pantalla de permiso:** menú ☰ → **Google Auth Platform** (o «Pantalla de consentimiento de
+   OAuth») → **Comenzar**:
+   - Nombre de la app: `Nos vemos`, y tu correo como correo de asistencia.
+   - Audiencia: **Externo**.
+   - En **Acceso a datos → Añadir o quitar permisos**, añade
+     `https://www.googleapis.com/auth/calendar.readonly`.
+   - En **Audiencia → Usuarios de prueba**, añade el Gmail de cada amiga (hasta 100).
+     Mientras la app esté «en prueba», solo esas cuentas podrán conectar su calendario.
+4. **Crea el ID de cliente:** **Clientes → Crear cliente** → tipo **Aplicación web**:
+   - Orígenes de JavaScript autorizados: `https://TU-USUARIO.github.io`
+   - URI de redireccionamiento autorizados: `https://TU-USUARIO.github.io/APLICACION/`
+     (exactamente la dirección de la app, con la barra final).
+5. Copia el **ID de cliente** (termina en `.apps.googleusercontent.com`) y pégalo en
+   [`config.js`](config.js), en `googleClientId`.
+
+> Al conectar, Google mostrará el aviso «Google no ha verificado esta aplicación». Es normal en
+> apps personales: pulsa **Continuar**. La app solo pide permiso de **lectura** y el permiso dura
+> una hora; para actualizar, se pulsa «Sincronizar» y Google lo vuelve a pedir.
+
+**Shifter:** en Shifter, usa la opción de exportar a Google Calendar (mejor en un calendario
+aparte, por ejemplo «Turnos»). Después, en *Nos vemos* → **Mis calendarios → Conectar Google
+Calendar**, marca ese calendario. Los días que en Shifter se llamen «Libre» o «Descanso» se
+ignoran (se puede cambiar la lista). Cuando cambien los turnos, se exportan otra vez en Shifter
+y se pulsa **Sincronizar**.
+
+### 4. Instalarla en el iPhone
 
 1. Abre el enlace en **Safari**.
 2. Pulsa **Compartir** (el cuadrado con la flecha hacia arriba).
@@ -113,9 +156,10 @@ une primero desde Safari y luego la instala, solo tiene que volver a entrar con 
 | --- | --- |
 | `index.html` | Página principal |
 | `app.js` | Las pantallas y lo que pasa al tocar cada cosa |
-| `util.js` | Franjas, estados, colores, fechas, calendario `.ics` y compresión de fotos |
+| `util.js` | Franjas, estados, colores, fechas, eventos → franjas ocupadas, `.ics` y compresión de fotos |
+| `gcal.js` | Conexión de solo lectura con Google Calendar (y Shifter a través de Google) |
 | `store.js` | Guarda y lee los datos (Firebase o modo prueba) |
-| `config.js` | **Aquí pegas la configuración de Firebase** |
+| `config.js` | **Aquí pegas la configuración de Firebase y el ID de cliente de Google** |
 | `styles.css` | Diseño en beiges y marrones (con modo oscuro) |
 | `manifest.webmanifest`, `sw.js`, `icons/` | Lo necesario para instalarla como app y abrirla sin cobertura |
 | `firestore.rules` | Reglas de seguridad para pegar en Firebase |

@@ -78,12 +78,87 @@ export function msgTime(ms) {
   return dayKey(d) === todayKey() ? fmtTime.format(d) : `${clean(fmtShort.format(d))}, ${fmtTime.format(d)}`;
 }
 
-/** Estado de una persona en una franja: 'y' | 'm' | 'n' | null. */
-export function statusOf(member, key) {
+// ── Disponibilidad: lo que marca cada una + lo que dicen sus calendarios ──
+
+/** Horas que abarca cada franja (la noche llega hasta las 24 h). */
+export const SLOT_HOURS = { m: [9, 14], t: [14, 20], n: [20, 24] };
+export const CAL_HORIZON_DAYS = 190;
+
+/**
+ * Marca en `acc` las franjas que se solapan con [start, end).
+ * Si el evento ocupa la mitad de la franja o más → 'n' (no puedo); si es menos → 'm' (quizás).
+ */
+export function markRange(acc, start, end, label) {
+  if (!(end > start)) return;
+  const d = new Date(start);
+  d.setHours(0, 0, 0, 0);
+  while (d < end) {
+    const k = dayKey(d);
+    for (const [sid, [h0, h1]] of Object.entries(SLOT_HOURS)) {
+      const s0 = new Date(d); s0.setHours(h0, 0, 0, 0);
+      const s1 = new Date(d); s1.setHours(h1, 0, 0, 0);
+      const overlap = Math.min(end, s1) - Math.max(start, s0);
+      if (overlap <= 0) continue;
+      const s = overlap / (s1 - s0) >= 0.5 ? 'n' : 'm';
+      const key = `${k}_${sid}`;
+      if (!acc[key] || (acc[key].s === 'm' && s === 'n')) acc[key] = { s, label };
+    }
+    d.setDate(d.getDate() + 1);
+  }
+}
+
+const atTime = (day, hm) => { const d = parseDay(day); const [h, m] = (hm || '00:00').split(':').map(Number); d.setHours(h, m, 0, 0); return d; };
+
+/** Convierte los eventos que una persona añade a mano en franjas ocupadas. */
+export function eventsToBusy(events, acc = {}) {
+  const horizon = addDays(todayDate(), CAL_HORIZON_DAYS);
+  for (const ev of Object.values(events || {})) {
+    if (!ev?.day) continue;
+    let day = ev.day;
+    for (let i = 0; i < (ev.weekly ? 60 : 1); i++) {
+      if (parseDay(day) > horizon) break;
+      if (ev.allDay) {
+        markRange(acc, parseDay(day), addDays(parseDay(day), 1), ev.title);
+      } else {
+        const start = atTime(day, ev.start);
+        let end = atTime(day, ev.end);
+        if (end <= start) end = addDays(end, 1); // p. ej. turno de noche 22:00–06:00
+        markRange(acc, start, end, ev.title);
+      }
+      day = dayKey(addDays(parseDay(day), 7));
+    }
+  }
+  return acc;
+}
+
+const derivedCache = new WeakMap();
+/** Franjas ocupadas según los calendarios de la persona: { clave: { s: 'n'|'m', label, src } } */
+export function derivedOf(member) {
+  if (!member) return {};
+  if (derivedCache.has(member)) return derivedCache.get(member);
+  const acc = {};
+  for (const [k, v] of Object.entries(member.gcal || {})) {
+    if (v === 'n' || v === 'm') acc[k] = { s: v, label: 'Google Calendar', src: 'gcal' };
+  }
+  const ev = eventsToBusy(member.events);
+  for (const [k, v] of Object.entries(ev)) {
+    if (!acc[k] || (acc[k].s === 'm' && v.s === 'n')) acc[k] = { ...v, src: 'event' };
+  }
+  derivedCache.set(member, acc);
+  return acc;
+}
+
+/** Lo que la persona ha marcado a mano: 'y' | 'm' | 'n' | null. */
+export function manualStatusOf(member, key) {
   const v = member?.free?.[key];
   if (v === true || v === 'y') return 'y';
   if (v === 'm' || v === 'n') return v;
   return null;
+}
+
+/** Estado final de una persona en una franja: manda lo marcado a mano; si no, lo que diga su calendario. */
+export function statusOf(member, key) {
+  return manualStatusOf(member, key) ?? derivedOf(member)[key]?.s ?? null;
 }
 
 /** Días que faltan para el próximo cumpleaños ('MM-DD'), o null. */

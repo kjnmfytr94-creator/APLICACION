@@ -4,8 +4,12 @@ import {
   esc, cap, normCode, safeColor, initial, listNames,
   dayKey, parseDay, todayDate, todayKey, addDays, addMonths,
   shortDay, longDay, weekdayName, slotById, whenText, msgTime,
-  statusOf, daysToBirthday, birthdayText, buildIcs, googleCalendarUrl, compressImage,
+  statusOf, manualStatusOf, derivedOf, daysToBirthday, birthdayText, buildIcs, googleCalendarUrl, compressImage,
 } from './util.js';
+import {
+  googleEnabled, startGoogleAuth, consumeGoogleRedirect, getToken, disconnectGoogle, isAuthError,
+  listCalendars, fetchGoogleBusy, DEFAULT_IGNORE,
+} from './gcal.js';
 
 // ───────────────────────── Estado ─────────────────────────
 
@@ -39,6 +43,27 @@ const LS = {
 };
 const getMemberships = () => LS.get('nosvemos.groups', []);
 const setMemberships = (v) => LS.set('nosvemos.groups', v);
+
+// Mi calendario personal (eventos a mano + Google). Se guarda en este móvil y se copia
+// a todos mis grupos para que las demás vean cuándo estoy ocupada.
+const CAL_KEY = 'nosvemos.mycal';
+const myCal = () => ({ events: {}, gcal: {}, gcalAt: null, gcalCals: [], gcalIgnore: DEFAULT_IGNORE, ...LS.get(CAL_KEY, {}) });
+const saveMyCal = (patch) => LS.set(CAL_KEY, { ...myCal(), ...patch });
+const calPayload = () => { const c = myCal(); return { events: c.events, gcal: c.gcal, gcalAt: c.gcalAt || null }; };
+
+async function publishMyCal() {
+  const payload = calPayload();
+  const results = await Promise.allSettled(getMemberships().map((m) => state.store.updateMember(m.groupId, m.memberId, payload)));
+  if (results.every((r) => r.status === 'rejected') && results.length) throw results[0].reason;
+}
+
+/** Al recuperar mi perfil en otro móvil, me traigo los eventos que tenía guardados. */
+function adoptCalFrom(member) {
+  const c = myCal();
+  if (!Object.keys(c.events).length && member?.events) c.events = member.events;
+  if (!c.gcalAt && member?.gcalAt) { c.gcal = member.gcal || {}; c.gcalAt = member.gcalAt; }
+  LS.set(CAL_KEY, c);
+}
 
 const isStandalone = () => window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 const inviteLink = (code) => `${location.origin}${location.pathname}?g=${code}`;
@@ -87,12 +112,13 @@ function colorPicker(name, taken = new Set(), selected) {
   <p class="muted tiny">Los colores tachados ya los ha elegido otra persona del grupo.</p>`;
 }
 
-function birthdayInputs(value) {
+function birthdayInputs(value, required = true) {
   const [mm, dd] = value ? value.split('-') : ['', ''];
   const days = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0'));
+  const req = required ? 'required' : '';
   return `<div class="row">
-    <label>Día<select name="bday-d"><option value="">—</option>${days.map((d) => `<option ${d === dd ? 'selected' : ''} value="${d}">${Number(d)}</option>`).join('')}</select></label>
-    <label>Mes<select name="bday-m"><option value="">—</option>${MONTHS.map((m, i) => { const v = String(i + 1).padStart(2, '0'); return `<option ${v === mm ? 'selected' : ''} value="${v}">${cap(m)}</option>`; }).join('')}</select></label>
+    <label>Día<select name="bday-d" ${req}><option value="">—</option>${days.map((d) => `<option ${d === dd ? 'selected' : ''} value="${d}">${Number(d)}</option>`).join('')}</select></label>
+    <label>Mes<select name="bday-m" ${req}><option value="">—</option>${MONTHS.map((m, i) => { const v = String(i + 1).padStart(2, '0'); return `<option ${v === mm ? 'selected' : ''} value="${v}">${cap(m)}</option>`; }).join('')}</select></label>
   </div>`;
 }
 const readBirthday = (fd) => (fd.get('bday-d') && fd.get('bday-m') ? `${fd.get('bday-m')}-${fd.get('bday-d')}` : null);
@@ -110,6 +136,11 @@ async function boot() {
       <button class="btn primary block" onclick="location.reload()">Reintentar</button></div></div>`;
     return;
   }
+
+  // ¿Volvemos de dar permiso en Google?
+  const g = consumeGoogleRedirect();
+  if (g?.ok) state.pendingGoogle = g.then || 'choose';
+  else if (g) setTimeout(() => toast(g.error === 'access_denied' ? 'No se ha conectado Google Calendar 🙅' : 'No se pudo conectar con Google 😕 Inténtalo otra vez'), 600);
 
   const params = new URLSearchParams(location.search);
   const invite = normCode(params.get('g'));
@@ -142,7 +173,7 @@ function renderHome({ code = '', message = '' } = {}) {
       <label>Nombre del grupo<input name="group" placeholder="Las de siempre" maxlength="40" required></label>
       <label>Tu nombre<input name="name" placeholder="¿Cómo te llamas?" maxlength="30" autocomplete="given-name" required></label>
       <fieldset><legend>Elige tu color</legend>${colorPicker('color')}</fieldset>
-      <fieldset><legend>Tu cumpleaños 🎂 <span class="muted">(opcional)</span></legend>${birthdayInputs('')}</fieldset>
+      <fieldset><legend>Tu cumpleaños 🎂</legend>${birthdayInputs('')}</fieldset>
       <button class="btn primary block" type="submit">Crear grupo</button>
     </form>`;
 
@@ -168,11 +199,11 @@ async function handleCreate(form) {
   const name = fd.get('name').trim();
   if (!groupName || !name) return;
   const id = await state.store.createGroup(groupName);
-  const memberId = await state.store.addMember(id, { name, color: fd.get('color'), birthday: readBirthday(fd) });
+  const memberId = await state.store.addMember(id, { name, color: fd.get('color'), birthday: readBirthday(fd), ...calPayload() });
   addMembership({ groupId: id, memberId, groupName });
   state.tab = 'grupo';
+  state.onboard = 'created';
   openGroup({ groupId: id, memberId });
-  toast('¡Grupo creado! 🎉 Ahora invita a tus amigas');
 }
 
 async function handleJoinCode(raw, { silent = false } = {}) {
@@ -203,7 +234,7 @@ function renderJoinStep(group, members) {
         <h2>${members.length ? 'Soy nueva en el grupo' : 'Tus datos'}</h2>
         <label>Tu nombre<input name="name" placeholder="¿Cómo te llamas?" maxlength="30" autocomplete="given-name" required></label>
         <fieldset><legend>Elige tu color</legend>${colorPicker('color', taken)}</fieldset>
-        <fieldset><legend>Tu cumpleaños 🎂 <span class="muted">(opcional)</span></legend>${birthdayInputs('')}</fieldset>
+        <fieldset><legend>Tu cumpleaños 🎂</legend>${birthdayInputs('')}</fieldset>
         <button class="btn primary block" type="submit">Unirme</button>
       </form>
       <button class="btn link block" data-action="home">‹ Volver</button>
@@ -220,11 +251,11 @@ async function handleJoinNew(form) {
     toast('¡Vaya! Alguien acaba de coger ese color. Elige otro 🎨');
     return renderJoinStep({ id: groupId, name: form.dataset.groupName }, members);
   }
-  const memberId = await state.store.addMember(groupId, { name, color: fd.get('color'), birthday: readBirthday(fd) });
+  const memberId = await state.store.addMember(groupId, { name, color: fd.get('color'), birthday: readBirthday(fd), ...calPayload() });
   addMembership({ groupId, memberId, groupName: form.dataset.groupName });
   state.tab = 'cal';
+  state.onboard = 'joined';
   openGroup({ groupId, memberId });
-  toast(`¡Bienvenida a ${form.dataset.groupName}! 💛 Toca un día para marcar si puedes`);
 }
 
 function addMembership(m) {
@@ -276,6 +307,16 @@ function openGroup({ groupId, memberId }) {
     if (mine && mine.groupName !== data.group.name) { mine.groupName = data.group.name; setMemberships(ms); }
     renderGroup();
     refreshSheet();
+    if (state.onboard) {
+      const kind = state.onboard;
+      state.onboard = null;
+      openConnectSheet({ welcome: kind });
+    } else if (state.pendingGoogle) {
+      const then = state.pendingGoogle;
+      state.pendingGoogle = null;
+      if (then === 'sync' && myCal().gcalCals.length) busy(null, () => syncGoogle());
+      else openGoogleChooser();
+    }
     if (!state.greeted.has(groupId)) {
       state.greeted.add(groupId);
       const n = unreadAvisos().length;
@@ -380,8 +421,14 @@ function viewCal() {
   }
 
   const marked = Object.keys(mine.free || {}).filter((k) => k >= tk).length;
+  const c = myCal();
+  const nEvents = Object.keys(c.events).length;
+  const calStatus = [c.gcalAt ? '📆 Google ✓' : '', nEvents ? `📌 ${nEvents} ${nEvents === 1 ? 'evento' : 'eventos'}` : ''].filter(Boolean).join(' · ');
   return `
-    ${!marked ? `<div class="notice">👋 ¡Hola, ${esc(mine.name)}! Toca un día para decir si puedes por la mañana, por la tarde o por la noche.</div>` : ''}
+    ${!marked && !calStatus ? `<div class="notice">👋 ¡Hola, ${esc(mine.name)}! Toca un día para decir si puedes por la mañana, por la tarde o por la noche.</div>` : ''}
+    <button class="cal-connect" data-action="connect">
+      <span>📆 <strong>Mis calendarios</strong> <span class="muted small">${calStatus || 'Conecta Google, Shifter o añade eventos'}</span></span><span class="chev">›</span>
+    </button>
     <div class="cal card">
       <div class="cal-head">
         <button class="icon-btn" data-action="month" data-d="-1" ${first <= minMonth ? 'disabled' : ''} aria-label="Mes anterior">‹</button>
@@ -412,14 +459,14 @@ function openDaySheet(k) {
       <div id="day-extra"></div>
       <div id="day-slots"></div>
       <label>📝 Nota para este día <span class="muted">(opcional)</span>
-        <input id="day-note" maxlength="80" placeholder="Solo hasta las 19h, estoy fuera…" value="${esc(note)}"></label>
+        <input id="day-note" maxlength="80" enterkeyhint="done" placeholder="Solo hasta las 19h, estoy fuera…" value="${esc(note)}"></label>
       <div class="sheet-actions">
         <button type="button" class="btn ghost" data-action="day-all">✅ Todo el día</button>
         <button type="button" class="btn primary" data-close>Listo</button>
       </div>
     </div>`;
   renderDaySheetParts();
-  sheet.showModal();
+  if (!sheet.open) sheet.showModal();
 }
 
 function renderDaySheetParts() {
@@ -430,9 +477,11 @@ function renderDaySheetParts() {
   const others = state.data.members.filter((m) => m.id !== state.memberId);
   box.innerHTML = SLOTS.map((s) => {
     const key = `${k}_${s.id}`;
-    const st = statusOf(mine, key);
+    const st = manualStatusOf(mine, key);
+    const auto = derivedOf(mine)[key];
     const yes = others.filter((o) => statusOf(o, key) === 'y');
     const maybe = others.filter((o) => statusOf(o, key) === 'm');
+    const autoText = auto && `${auto.src === 'gcal' ? '📆' : '📌'} ${esc(auto.label)}: ${auto.s === 'n' ? 'ocupada' : 'ocupada un rato'}`;
     return `
       <div class="slot-row">
         <div class="slot-row-head">
@@ -440,9 +489,13 @@ function renderDaySheetParts() {
           ${yes.length || maybe.length ? avatars(yes, { max: 5, maybe }) : '<span class="muted tiny">Nadie más aún</span>'}
         </div>
         <div class="seg" role="group" aria-label="${s.label}">
-          ${Object.entries(STATUS).map(([id, x]) => `
-            <button type="button" class="seg-btn ${x.cls} ${st === id ? 'on' : ''}" data-action="set-status" data-key="${key}" data-s="${id}" aria-pressed="${st === id}">${x.emoji} ${x.label}</button>`).join('')}
+          ${Object.entries(STATUS).map(([id, x]) => {
+            const on = st === id;
+            const isAuto = !st && auto?.s === id;
+            return `<button type="button" class="seg-btn ${x.cls} ${on ? 'on' : ''} ${isAuto ? 'auto' : ''}" data-action="set-status" data-key="${key}" data-s="${id}" aria-pressed="${on}">${x.emoji} ${x.label}</button>`;
+          }).join('')}
         </div>
+        ${auto ? `<p class="auto-note">${autoText}${st ? ' · tú lo has cambiado a mano' : ' · se ha marcado solo'}</p>` : ''}
       </div>`;
   }).join('');
 
@@ -750,7 +803,7 @@ function openPlanSheet({ key, keys, poll = false } = {}) {
         <button type="submit" class="btn primary">Crear plan</button>
       </div>
     </form>`;
-  sheet.showModal();
+  if (!sheet.open) sheet.showModal();
   updateFreeHint();
 }
 
@@ -824,7 +877,7 @@ async function openPhoto(photoId) {
         <button class="btn primary" data-close>Cerrar</button>
       </div>
     </div>`;
-  sheet.showModal();
+  if (!sheet.open) sheet.showModal();
   const full = await state.store.getPhotoFull(state.groupId, state.planId, photoId).catch(() => null);
   const img = sheet.querySelector('#photo-full');
   if (full && img) img.src = full;
@@ -883,6 +936,7 @@ function viewGrupo() {
     <section class="card">
       <h2>Opciones</h2>
       <button class="list-btn" data-action="profile"><span>👤 Mi perfil (nombre, color, cumple)</span><span class="chev">›</span></button>
+      <button class="list-btn" data-action="connect"><span>📆 Mis calendarios (Google, Shifter, eventos)</span><span class="chev">›</span></button>
       <button class="list-btn" data-action="switch-group"><span>👭 Mis grupos</span><span class="chev">›</span></button>
       <button class="list-btn" data-action="clear-mine"><span>🧹 Borrar todo lo que he marcado</span><span class="chev">›</span></button>
       <button class="list-btn danger" data-action="leave"><span>🚪 Salir de «${esc(state.data.group.name)}»</span><span class="chev">›</span></button>
@@ -906,7 +960,7 @@ function openProfileSheet() {
         <button type="submit" class="btn primary">Guardar</button>
       </div>
     </form>`;
-  sheet.showModal();
+  if (!sheet.open) sheet.showModal();
 }
 
 function openGroupsSheet() {
@@ -924,7 +978,7 @@ function openGroupsSheet() {
         <button class="btn primary" data-close>Cerrar</button>
       </div>
     </div>`;
-  sheet.showModal();
+  if (!sheet.open) sheet.showModal();
 }
 
 // ───────────────────────── Novedades (avisos dentro de la app) ─────────────────────────
@@ -992,15 +1046,247 @@ function openAvisosSheet() {
         </button>`).join('') : '<p class="muted">No hay nada nuevo por ahora 😌</p>'}
       <div class="sheet-actions"><button class="btn primary" data-close>Cerrar</button></div>
     </div>`;
-  sheet.showModal();
+  if (!sheet.open) sheet.showModal();
   LS.set(seenKey(), [...new Set([...seen, ...items.map((a) => a.id)])].slice(-300));
   renderGroup();
+}
+
+// ───────────────────────── Mis calendarios ─────────────────────────
+
+function showSheet(kind, html) {
+  if (state.sheetKind === 'day' && kind !== 'day') saveDayNote();
+  state.sheetKind = kind;
+  sheet.innerHTML = html;
+  if (!sheet.open) sheet.showModal();
+  sheet.scrollTop = 0;
+}
+
+function relTime(ms) {
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 1) return 'ahora mismo';
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.round(h / 24);
+  return `hace ${d} ${d === 1 ? 'día' : 'días'}`;
+}
+
+function eventWhen(ev) {
+  const base = ev.weekly ? `Cada ${weekdayName(ev.day)}` : shortDay(ev.day);
+  return `${base} · ${ev.allDay ? 'todo el día' : `${ev.start}–${ev.end}`}`;
+}
+
+function openConnectSheet({ welcome = null } = {}) {
+  state.welcomeKind = welcome;
+  const c = myCal();
+  const events = Object.entries(c.events)
+    .map(([id, ev]) => ({ id, ...ev }))
+    .filter((ev) => ev.weekly || ev.day >= todayKey())
+    .sort((a, b) => a.day.localeCompare(b.day));
+  const gStatus = !googleEnabled ? 'Aún no está activado en esta app (mira el README, paso 3)'
+    : c.gcalAt ? `✅ Conectado · sincronizado ${relTime(c.gcalAt)}`
+    : 'Tus eventos de Google marcarán solos cuándo estás ocupada';
+  const groupName = state.data?.group.name || '';
+  showSheet('connect', `
+    <div class="sheet-body">
+      <div class="sheet-grab"></div>
+      ${welcome ? `
+        <div class="welcome">
+          <div class="welcome-emoji">🎉</div>
+          <h2>¡Ya estás en «${esc(groupName)}»!</h2>
+          <p class="muted">¿Traemos lo que ya tienes en tus calendarios? Las franjas en las que estés ocupada se marcarán solas como <strong>«No puedo»</strong>, y siempre podrás cambiarlas a mano.</p>
+        </div>` : `
+        <h2>Mis calendarios 📆</h2>
+        <p class="muted small sheet-intro">Lo que añadas aquí marca solas tus franjas ocupadas en todos tus grupos. Siempre puedes cambiar un día a mano.</p>`}
+      <div class="connect-options">
+        <button class="connect-opt" data-action="new-event">
+          <span class="connect-icon">➕</span>
+          <span class="connect-text"><strong>Añadir un evento</strong><span class="muted small">Médico, clases, un viaje… algo en lo que no puedas quedar</span></span>
+          <span class="chev">›</span></button>
+        <button class="connect-opt ${c.gcalAt ? 'connected' : ''}" data-action="google" ${googleEnabled ? '' : 'disabled'}>
+          <span class="connect-icon">🗓️</span>
+          <span class="connect-text"><strong>${c.gcalAt ? 'Google Calendar' : 'Conectar Google Calendar'}</strong><span class="muted small">${gStatus}</span></span>
+          <span class="chev">›</span></button>
+        <button class="connect-opt" data-action="shifter">
+          <span class="connect-icon">🔄</span>
+          <span class="connect-text"><strong>Conectar Shifter</strong><span class="muted small">Tus turnos de Calendario de Turnos (Shifter)</span></span>
+          <span class="chev">›</span></button>
+      </div>
+      ${events.length ? `
+        <h3 class="sheet-sub">Mis eventos</h3>
+        ${events.map((ev) => `
+          <div class="event-row">
+            <span class="connect-text"><strong>📌 ${esc(ev.title)}</strong><span class="muted small">${esc(eventWhen(ev))}${ev.weekly ? ' 🔁' : ''}</span></span>
+            <button class="icon-btn remove" data-action="delete-event" data-id="${esc(ev.id)}" aria-label="Borrar ${esc(ev.title)}">✕</button>
+          </div>`).join('')}` : ''}
+      <div class="sheet-actions">
+        <button class="btn primary" data-close>${welcome ? (events.length || c.gcalAt ? '¡Listo, vamos! →' : 'Ahora no, lo haré luego') : 'Listo'}</button>
+      </div>
+    </div>`);
+}
+
+function openEventSheet() {
+  const tk = todayKey();
+  showSheet('event', `
+    <form id="event-form" class="sheet-body">
+      <div class="sheet-grab"></div>
+      <h2>Añadir un evento 📌</h2>
+      <label>¿Qué es?<input name="title" required maxlength="40" placeholder="Médico, clase de inglés, viaje…"></label>
+      <label>Día<input type="date" name="day" required min="${tk}" value="${tk}"></label>
+      <label class="check-row"><input type="checkbox" name="allDay"> Todo el día</label>
+      <div class="row times">
+        <label>Desde<input type="time" name="start" value="18:00" required></label>
+        <label>Hasta<input type="time" name="end" value="20:00" required></label>
+      </div>
+      <label class="check-row"><input type="checkbox" name="weekly"> 🔁 Se repite cada semana</label>
+      <p class="muted small">Tus amigas solo verán que estás ocupada, no el nombre del evento.</p>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost" data-action="connect">‹ Volver</button>
+        <button type="submit" class="btn primary">Añadir</button>
+      </div>
+    </form>`);
+  sheet.querySelector('input[name=title]').focus();
+}
+
+async function submitEvent(form) {
+  const fd = new FormData(form);
+  const ev = {
+    title: fd.get('title').trim(),
+    day: fd.get('day'),
+    allDay: fd.get('allDay') === 'on',
+    weekly: fd.get('weekly') === 'on',
+  };
+  if (!ev.title || !ev.day) return;
+  if (!ev.allDay) {
+    ev.start = fd.get('start');
+    ev.end = fd.get('end');
+    if (!ev.start || !ev.end || ev.start === ev.end) return toast('Revisa las horas del evento ⏰');
+  }
+  const c = myCal();
+  saveMyCal({ events: { ...c.events, [newId().slice(0, 8)]: ev } });
+  await publishMyCal();
+  openConnectSheet({ welcome: state.welcomeKind });
+  toast('📌 Evento añadido: esas franjas salen como ocupadas');
+}
+
+function openShifterSheet() {
+  showSheet('shifter', `
+    <div class="sheet-body">
+      <div class="sheet-grab"></div>
+      <h2>Conectar Shifter 🔄</h2>
+      <p class="muted sheet-intro">Shifter (Calendario de Turnos) no se conecta directamente con otras apps, pero sí puede <strong>enviar tus turnos a Google Calendar</strong>. Así llegan hasta aquí:</p>
+      <ol class="steps big">
+        <li>Abre <strong>Shifter</strong> y busca en el menú la opción <strong>«Exportar a Google Calendar»</strong>.</li>
+        <li>Elige tu cuenta de Google y el calendario donde quieres los turnos (por ejemplo, uno llamado «Turnos»).</li>
+        <li>Vuelve aquí, pulsa <strong>Conectar Google Calendar</strong> y marca ese calendario.</li>
+        <li>Cuando cambien tus turnos, vuelve a exportarlos en Shifter y pulsa <strong>Sincronizar</strong> aquí.</li>
+      </ol>
+      <p class="muted small">💡 Los días que en Shifter se llamen «Libre» o «Descanso» no cuentan como ocupados.</p>
+      ${googleEnabled ? '' : '<div class="notice">La conexión con Google todavía no está activada en esta app. Quien la ha instalado tiene que seguir el paso 3 del README.</div>'}
+      <div class="sheet-actions">
+        <button class="btn ghost" data-action="connect">‹ Volver</button>
+        <button class="btn primary" data-action="google" ${googleEnabled ? '' : 'disabled'}>Conectar Google</button>
+      </div>
+    </div>`);
+}
+
+function openGoogleSheet() {
+  const c = myCal();
+  if (!c.gcalAt) return openGoogleChooser();
+  const busyCount = Object.keys(c.gcal).length;
+  showSheet('google', `
+    <div class="sheet-body">
+      <div class="sheet-grab"></div>
+      <h2>Google Calendar 🗓️</h2>
+      <div class="pill">✅ Sincronizado ${relTime(c.gcalAt)} · ${busyCount} ${busyCount === 1 ? 'franja ocupada' : 'franjas ocupadas'}</div>
+      ${c.gcalCalNames?.length ? `<p class="muted small sheet-intro">Calendarios: ${esc(c.gcalCalNames.join(', '))}</p>` : ''}
+      <p class="muted small sheet-intro">🔒 No guardamos tus eventos: solo qué franjas tienes ocupadas. Tus amigas no ven los títulos.</p>
+      <p class="muted small sheet-intro">Cuando cambie tu calendario (o tus turnos de Shifter), pulsa <strong>Sincronizar</strong>.</p>
+      <div class="stack">
+        <button class="btn primary block" data-action="gsync">🔄 Sincronizar ahora</button>
+        <button class="btn ghost block" data-action="gchoose">Elegir calendarios</button>
+        <button class="btn link block danger-text" data-action="gdisconnect">Desconectar Google Calendar</button>
+      </div>
+      <div class="sheet-actions">
+        <button class="btn ghost" data-action="connect">‹ Volver</button>
+        <button class="btn primary" data-close>Listo</button>
+      </div>
+    </div>`);
+}
+
+async function openGoogleChooser() {
+  const token = getToken();
+  if (!token) return startGoogleAuth('choose');
+  showSheet('gchoose', `
+    <div class="sheet-body">
+      <div class="sheet-grab"></div>
+      <h2>¿Qué calendarios miramos? 🗓️</h2>
+      <div class="spinner"></div>
+    </div>`);
+  let cals;
+  try {
+    cals = await listCalendars(token);
+  } catch (e) {
+    if (isAuthError(e)) return startGoogleAuth('choose');
+    console.error(e);
+    closeSheet();
+    return toast('No se pudo leer tu Google Calendar 😕 Inténtalo otra vez');
+  }
+  const c = myCal();
+  const chosen = new Set(c.gcalCals.length ? c.gcalCals : cals.filter((x) => x.primary).map((x) => x.id));
+  showSheet('gchoose', `
+    <form id="gchoose-form" class="sheet-body">
+      <div class="sheet-grab"></div>
+      <h2>¿Qué calendarios miramos? 🗓️</h2>
+      <p class="muted small sheet-intro">Marca los que tengan cosas en las que no puedes quedar. Si exportaste tus turnos de Shifter, marca también ese calendario.</p>
+      <div class="cal-list">
+        ${cals.map((x) => `
+          <label class="check-row cal-item">
+            <input type="checkbox" name="cal" value="${esc(x.id)}" data-name="${esc(x.name)}" ${chosen.has(x.id) ? 'checked' : ''}>
+            <span class="cal-dot" style="background:${safeColor(x.color)}"></span>
+            <span>${esc(x.name)}${x.primary ? ' <span class="muted small">(principal)</span>' : ''}</span>
+          </label>`).join('')}
+      </div>
+      <label>Ignorar eventos que se llamen…<input name="ignore" value="${esc(c.gcalIgnore)}" placeholder="Libre, Descanso"></label>
+      <p class="muted tiny">Sepáralos con comas. Útil para los días «Libre» de Shifter.</p>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost" data-action="connect">‹ Volver</button>
+        <button type="submit" class="btn primary">Sincronizar</button>
+      </div>
+    </form>`);
+}
+
+async function syncGoogle() {
+  const c = myCal();
+  const token = getToken();
+  if (!token) return startGoogleAuth('sync');
+  if (!c.gcalCals.length) return openGoogleChooser();
+  toast('Leyendo tu Google Calendar… 🗓️');
+  try {
+    const { busy } = await fetchGoogleBusy(token, c.gcalCals, c.gcalIgnore);
+    saveMyCal({ gcal: busy, gcalAt: Date.now() });
+    await publishMyCal();
+    const n = Object.keys(busy).length;
+    toast(`📆 ¡Calendario sincronizado! ${n} ${n === 1 ? 'franja ocupada' : 'franjas ocupadas'}`);
+    if (sheet.open && ['google', 'gchoose', 'connect'].includes(state.sheetKind)) openConnectSheet({ welcome: state.welcomeKind });
+  } catch (e) {
+    if (isAuthError(e)) return startGoogleAuth('sync');
+    throw e;
+  }
 }
 
 // ───────────────────────── Hojas (diálogos) ─────────────────────────
 
 function closeSheet() {
   if (state.sheetKind === 'day') saveDayNote();
+  if (state.sheetKind === 'connect' && state.welcomeKind === 'created') {
+    state.tab = 'grupo';
+    renderGroup();
+    setTimeout(() => toast('Ahora invita a tus amigas 💌'), 300);
+  } else if (state.sheetKind === 'connect' && state.welcomeKind === 'joined') {
+    setTimeout(() => toast('¡Bienvenida! 💛 Toca un día para marcar si puedes'), 300);
+  }
+  state.welcomeKind = null;
   state.sheetKind = null;
   state.sheetDay = null;
   if (sheet.open) sheet.close();
@@ -1057,6 +1343,8 @@ function onAction(b) {
       const memberId = b.dataset.member;
       busy(b, async () => {
         const group = await s.getGroup(groupId);
+        const members = await s.getMembers(groupId);
+        adoptCalFrom(members.find((m) => m.id === memberId));
         addMembership({ groupId, memberId, groupName: group?.name || '' });
         state.tab = 'cal';
         openGroup({ groupId, memberId });
@@ -1069,7 +1357,7 @@ function onAction(b) {
     case 'day': openDaySheet(b.dataset.day); break;
     case 'set-status': {
       const key = b.dataset.key;
-      const current = statusOf(me(), key);
+      const current = manualStatusOf(me(), key);
       const next = current === b.dataset.s ? null : b.dataset.s;
       if (navigator.vibrate) navigator.vibrate(8);
       busy(null, () => s.setStatus(g, state.memberId, key, next));
@@ -1140,6 +1428,39 @@ function onAction(b) {
       }
       break;
 
+    // mis calendarios
+    case 'connect': openConnectSheet({ welcome: state.sheetKind ? state.welcomeKind : null }); break;
+    case 'new-event': openEventSheet(); break;
+    case 'shifter': openShifterSheet(); break;
+    case 'google':
+      if (!googleEnabled) return toast('Google Calendar aún no está activado en esta app');
+      openGoogleSheet();
+      break;
+    case 'gchoose': openGoogleChooser(); break;
+    case 'gsync': busy(b, () => syncGoogle()); break;
+    case 'gdisconnect':
+      if (confirm('¿Desconectar Google Calendar? Se quitarán las franjas que venían de ahí.')) {
+        busy(b, async () => {
+          await disconnectGoogle();
+          saveMyCal({ gcal: {}, gcalAt: null, gcalCals: [], gcalCalNames: [] });
+          await publishMyCal();
+          openConnectSheet();
+          toast('Google Calendar desconectado');
+        });
+      }
+      break;
+    case 'delete-event':
+      if (confirm('¿Borrar este evento?')) {
+        busy(b, async () => {
+          const events = { ...myCal().events };
+          delete events[b.dataset.id];
+          saveMyCal({ events });
+          await publishMyCal();
+          openConnectSheet({ welcome: state.welcomeKind });
+        });
+      }
+      break;
+
     // grupo
     case 'share': share(); break;
     case 'copy': copy(inviteLink(g)); break;
@@ -1174,6 +1495,18 @@ function onSubmit(e) {
     case 'join-form': busy(btn, () => handleJoinCode(new FormData(form).get('code'))); break;
     case 'join-new-form': busy(btn, () => handleJoinNew(form)); break;
     case 'plan-form': busy(btn, () => submitPlan(form)); break;
+    case 'event-form': busy(btn, () => submitEvent(form)); break;
+    case 'gchoose-form': {
+      const boxes = [...form.querySelectorAll('input[name=cal]:checked')];
+      if (!boxes.length) return toast('Marca al menos un calendario 🗓️');
+      saveMyCal({
+        gcalCals: boxes.map((x) => x.value),
+        gcalCalNames: boxes.map((x) => x.dataset.name),
+        gcalIgnore: new FormData(form).get('ignore') || '',
+      });
+      busy(btn, () => syncGoogle());
+      break;
+    }
     case 'chat-form': {
       const input = form.querySelector('input[name=text]');
       const text = input.value.trim();
@@ -1214,7 +1547,15 @@ app.addEventListener('change', (e) => {
 });
 sheet.addEventListener('change', (e) => {
   if (e.target.id === 'day-note') saveDayNote();
-  else updateFreeHint();
+  else if (e.target.name === 'allDay') {
+    const times = sheet.querySelector('#event-form .times');
+    times.hidden = e.target.checked;
+    times.querySelectorAll('input').forEach((i) => { i.required = !e.target.checked; });
+  } else updateFreeHint();
+});
+sheet.addEventListener('keydown', (e) => {
+  // En el móvil, la tecla «OK» del teclado cierra el teclado y guarda la nota.
+  if (e.key === 'Enter' && e.target.id === 'day-note') { e.preventDefault(); e.target.blur(); saveDayNote(); }
 });
 sheet.addEventListener('close', () => {
   if (state.sheetKind === 'day') saveDayNote();

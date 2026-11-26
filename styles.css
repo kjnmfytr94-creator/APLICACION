@@ -473,3 +473,55 @@ input[type="date"], input[type="time"] { min-height: 46px; }
   .colors { grid-template-columns: repeat(4, 1fr); }
   .seg-btn { font-size: 12px; }
 }
+
+/* ── Mis calendarios ── */
+.cal-connect {
+  appearance: none; border: 0; width: 100%; cursor: pointer; color: inherit; text-align: left;
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  background: var(--card); box-shadow: var(--shadow); border-radius: 16px;
+  padding: 12px 16px; margin-bottom: 14px;
+}
+.cal-connect .muted { display: block; margin-top: 2px; }
+.welcome { text-align: center; padding: 4px 4px 8px; }
+.welcome-emoji { font-size: 44px; }
+.welcome h2 { margin: 6px 0 8px; }
+.sheet-intro { margin: -8px 0 14px; }
+.connect-options { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 6px; }
+.connect-opt {
+  appearance: none; cursor: pointer; color: inherit; text-align: left; width: 100%;
+  display: flex; align-items: center; gap: 12px;
+  background: var(--card-2); border: 1.5px solid var(--line); border-radius: 16px; padding: 14px;
+}
+.connect-opt:active { transform: scale(.98); }
+.connect-opt:disabled { opacity: .55; cursor: default; }
+.connect-opt.connected { border-color: var(--yes); }
+.connect-icon {
+  width: 44px; height: 44px; flex: none; border-radius: 12px; background: var(--accent-soft);
+  display: grid; place-items: center; font-size: 22px;
+}
+.connect-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sheet-sub { font-size: 16px; margin: 18px 0 8px; }
+.event-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.event-row .remove { width: 32px; height: 32px; font-size: 13px; flex: none; }
+.stack { margin: 16px 0 4px; }
+.stack .btn.block { margin-bottom: 8px; }
+.steps.big li { margin-bottom: 12px; line-height: 1.45; }
+
+.check-row { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 500; font-size: 16px; cursor: pointer; }
+.check-row input {
+  -webkit-appearance: none; appearance: none; flex: none; margin: 0;
+  width: 24px; height: 24px; padding: 0; border-radius: 7px; border: 2px solid var(--line); background: var(--card-2);
+  display: grid; place-items: center;
+}
+.check-row input:checked { background: var(--accent); border-color: var(--accent); }
+.check-row input:checked::after { content: "✓"; color: var(--accent-text); font-weight: 800; font-size: 15px; }
+.cal-list { display: flex; flex-direction: column; margin-bottom: 12px; }
+.cal-item { padding: 10px 0; margin: 0; border-top: 1px solid var(--line); }
+.cal-item:first-child { border-top: 0; }
+.cal-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+
+/* Franja marcada sola por el calendario */
+.seg-btn.auto { border-style: dashed; }
+.seg-btn.no.auto { border-color: var(--no); color: var(--no); background: var(--no-soft); }
+.seg-btn.maybe.auto { border-color: var(--maybe); color: color-mix(in srgb, var(--maybe) 70%, var(--text)); background: var(--maybe-soft); }
+.auto-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
