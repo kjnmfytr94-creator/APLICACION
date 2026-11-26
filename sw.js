@@ -1,13 +1,14 @@
 // Service worker: permite abrir la app aunque no haya cobertura.
 // Primero intenta la red (para tener siempre la última versión) y, si falla, usa la copia guardada.
 
-const CACHE = 'quedamos-v1';
+const CACHE = 'nosvemos-v2';
 const SHELL = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './store.js',
+  './util.js',
   './config.js',
   './manifest.webmanifest',
   './icons/icon-192.png',

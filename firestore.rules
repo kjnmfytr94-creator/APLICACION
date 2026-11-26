@@ -1,36 +1,63 @@
 rules_version = '2';
 
-// Reglas de seguridad de Firestore para Quedamos.
+// Reglas de seguridad de Firestore para «Nos vemos».
 // - Solo usuarios de la app (con sesión anónima) pueden leer o escribir.
 // - Nadie puede listar todos los grupos: hay que conocer el código.
 // - Dentro de un grupo, cualquiera que tenga el código puede participar.
 service cloud.firestore {
   match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function groupExists(groupId) { return exists(/databases/$(database)/documents/groups/$(groupId)); }
+
     match /groups/{groupId} {
-      allow get: if request.auth != null;
+      allow get: if signedIn();
       allow list, delete: if false;
-      allow create, update: if request.auth != null
+      allow create, update: if signedIn()
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 40;
 
       match /members/{memberId} {
-        allow read, delete: if request.auth != null;
-        allow create, update: if request.auth != null
-          && exists(/databases/$(database)/documents/groups/$(groupId))
+        allow read, delete: if signedIn();
+        allow create, update: if signedIn() && groupExists(groupId)
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0
           && request.resource.data.name.size() <= 30
+          && request.resource.data.color is string
           && request.resource.data.free is map;
       }
 
       match /plans/{planId} {
-        allow read, delete: if request.auth != null;
-        allow create, update: if request.auth != null
-          && exists(/databases/$(database)/documents/groups/$(groupId))
+        allow read, delete: if signedIn();
+        allow create, update: if signedIn() && groupExists(groupId)
           && request.resource.data.title is string
           && request.resource.data.title.size() > 0
           && request.resource.data.title.size() <= 60;
+
+        match /messages/{messageId} {
+          allow read: if signedIn();
+          allow create: if signedIn()
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0
+            && request.resource.data.text.size() <= 500;
+          allow update, delete: if false;
+        }
+
+        match /photos/{photoId} {
+          allow read, delete: if signedIn();
+          allow create: if signedIn()
+            && request.resource.data.thumb is string
+            && request.resource.data.thumb.size() < 200000;
+          allow update: if false;
+        }
+
+        match /photoFull/{photoId} {
+          allow read, delete: if signedIn();
+          allow create: if signedIn()
+            && request.resource.data.data is string
+            && request.resource.data.data.size() < 1000000;
+          allow update: if false;
+        }
       }
     }
   }
