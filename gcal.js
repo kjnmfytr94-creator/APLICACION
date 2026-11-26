@@ -3,7 +3,9 @@
 // Usamos el flujo OAuth de Google por redirección: la app te lleva a Google, eliges tu cuenta,
 // das permiso de solo lectura y Google te devuelve a la app con un permiso temporal (1 hora).
 // Con ese permiso leemos tus eventos y marcamos como ocupadas las franjas que coinciden.
-// Los títulos de tus eventos NO se guardan: solo se guarda qué franjas están ocupadas.
+// Cada persona decide qué comparte: por calendario («con detalles» o «solo ocupada») y por
+// evento («ver», «solo ocupada» o «no compartir»). Solo se comparten el título y la hora de
+// los eventos que la persona deja en «ver»; del resto, como mucho, que esa franja está ocupada.
 //
 // Shifter (Calendario de Turnos) puede exportar los turnos a Google Calendar, así que
 // conectando Google Calendar también entran tus turnos.
@@ -95,7 +97,7 @@ async function listEvents(token, calendarId, timeMin, timeMax) {
   do {
     const p = new URLSearchParams({
       timeMin, timeMax, singleEvents: 'true', maxResults: '2500',
-      fields: 'nextPageToken,items(summary,start,end,transparency,status)',
+      fields: 'nextPageToken,items(id,summary,start,end,transparency,status)',
     });
     if (pageToken) p.set('pageToken', pageToken);
     const data = await api(`/calendars/${encodeURIComponent(calendarId)}/events?${p}`, token);
@@ -109,38 +111,84 @@ async function listEvents(token, calendarId, timeMin, timeMax) {
 export const DEFAULT_IGNORE = 'Libre, Descanso, Vacaciones, Festivo';
 const normalize = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-/**
- * Convierte eventos de Google en franjas ocupadas.
- * Devuelve un mapa { 'AAAA-MM-DD_t': 'n' | 'm' }.
- */
-export function googleEventsToBusy(events, ignoreText = DEFAULT_IGNORE) {
-  const ignore = ignoreText.split(',').map((w) => normalize(w.trim())).filter(Boolean);
-  const acc = {};
-  for (const ev of events) {
-    if (ev.status === 'cancelled' || ev.transparency === 'transparent') continue;
-    const title = normalize(ev.summary);
-    if (ignore.some((w) => title.includes(w))) continue;
-    let start;
-    let end;
-    if (ev.start?.dateTime) {
-      start = new Date(ev.start.dateTime);
-      end = new Date(ev.end?.dateTime || ev.start.dateTime);
-    } else if (ev.start?.date) {
-      start = parseDay(ev.start.date);
-      end = ev.end?.date ? parseDay(ev.end.date) : addDays(start, 1);
-    } else continue;
-    markRange(acc, start, end, 'Google Calendar');
-  }
-  const out = {};
-  const today = dayKey(new Date());
-  for (const [k, v] of Object.entries(acc)) if (k >= today) out[k] = v.s;
-  return out;
-}
+const pad = (n) => String(n).padStart(2, '0');
+const hm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-export async function fetchGoogleBusy(token, calendarIds, ignoreText) {
+/**
+ * Lee los eventos de los calendarios elegidos (próximos meses) y los deja en un formato sencillo:
+ * [{ key, cal, title, allDay, start: ISO, end: ISO }]
+ */
+export async function fetchGoogleEvents(token, calendarIds) {
   const timeMin = todayDate().toISOString();
   const timeMax = addDays(todayDate(), CAL_HORIZON_DAYS).toISOString();
-  const all = [];
-  for (const id of calendarIds) all.push(...await listEvents(token, id, timeMin, timeMax));
-  return { busy: googleEventsToBusy(all, ignoreText), count: all.length };
+  const out = [];
+  for (const cal of calendarIds) {
+    for (const ev of await listEvents(token, cal, timeMin, timeMax)) {
+      if (ev.status === 'cancelled' || ev.transparency === 'transparent') continue;
+      let start;
+      let end;
+      let allDay = false;
+      if (ev.start?.dateTime) {
+        start = new Date(ev.start.dateTime);
+        end = new Date(ev.end?.dateTime || ev.start.dateTime);
+      } else if (ev.start?.date) {
+        allDay = true;
+        start = parseDay(ev.start.date);
+        end = ev.end?.date ? parseDay(ev.end.date) : addDays(start, 1);
+      } else continue;
+      out.push({ key: `${cal}|${ev.id}`, cal, title: (ev.summary || 'Ocupada').slice(0, 80), allDay, start: start.toISOString(), end: end.toISOString() });
+    }
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start));
+}
+
+/** Cómo se comparte un evento: 'details' (título y hora), 'busy' (solo ocupada) o 'ignore' (nada). */
+export function shareModeOf(ev, { gModes = {}, gPrefs = {} } = {}) {
+  return gPrefs[ev.key] || gModes[ev.cal] || 'details';
+}
+
+export function isIgnoredByWords(ev, ignoreText = DEFAULT_IGNORE) {
+  const ignore = String(ignoreText || '').split(',').map((w) => normalize(w.trim())).filter(Boolean);
+  const title = normalize(ev.title);
+  return ignore.some((w) => title.includes(w));
+}
+
+/**
+ * A partir de los eventos y de lo que la persona ha decidido compartir, calcula:
+ *  - busy:   { 'AAAA-MM-DD_t': 'n' | 'm' }  franjas ocupadas (todo menos lo «no compartir»)
+ *  - shared: [{ d, t, s, e, ad }]           eventos visibles con su título y hora («ver»)
+ */
+export function computeGoogle(events, { ignoreText = DEFAULT_IGNORE, gModes = {}, gPrefs = {} } = {}) {
+  const acc = {};
+  const shared = [];
+  const today = dayKey(new Date());
+  for (const ev of events || []) {
+    if (isIgnoredByWords(ev, ignoreText)) continue;
+    const mode = shareModeOf(ev, { gModes, gPrefs });
+    if (mode === 'ignore') continue;
+    const start = new Date(ev.start);
+    const end = new Date(ev.end);
+    markRange(acc, start, end, 'Google Calendar');
+    if (mode !== 'details') continue;
+    // Un evento de varios días aparece en cada día que ocupa.
+    const d = new Date(start);
+    d.setHours(0, 0, 0, 0);
+    while (d < end && shared.length < 800) {
+      const k = dayKey(d);
+      if (k >= today) {
+        const dayEnd = addDays(d, 1);
+        shared.push({
+          d: k,
+          t: ev.title,
+          ad: ev.allDay || (start <= d && end >= dayEnd) ? 1 : 0,
+          s: start > d ? hm(start) : '',
+          e: end < dayEnd ? hm(end) : '',
+        });
+      }
+      d.setDate(d.getDate() + 1);
+    }
+  }
+  const busy = {};
+  for (const [k, v] of Object.entries(acc)) if (k >= today) busy[k] = v.s;
+  return { busy, shared };
 }

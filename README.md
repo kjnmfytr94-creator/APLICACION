@@ -6,15 +6,34 @@ cuándo coincidís.
 ## Qué hace
 
 - **👋 Al entrar en un grupo** cada persona pone su nombre, elige su color (sin repetir) y su
-  cumpleaños, y la app le ofrece traer lo que ya tiene en sus calendarios:
+  cumpleaños. Después le sale una **guía de bienvenida** que explica todas las funciones y cómo
+  ponerla en la pantalla de inicio (se puede volver a ver con el botón **?**). Luego la app le
+  ofrece traer lo que ya tiene en sus calendarios:
   - **➕ Añadir un evento** (médico, clases, un viaje…), que puede repetirse cada semana.
   - **🗓️ Conectar Google Calendar** (solo lectura).
-  - **🔄 Conectar Shifter (Calendario de Turnos)**: Shifter exporta los turnos a Google Calendar,
-    y desde ahí llegan a la app.
+  - **🍎 Calendario de Apple**: se publica el calendario de iCloud y se añade a Google Calendar
+    («Otros calendarios → Desde URL»); desde ahí llega a la app.
+  - **🔄 Shifter (Calendario de Turnos)**: Shifter exporta los turnos a Google Calendar, y desde
+    ahí llegan a la app.
 
   Las franjas en las que está ocupada se marcan solas como «No puedo» (o «Quizás» si solo está
-  ocupada un rato), y siempre se pueden cambiar a mano. **Los títulos de los eventos de Google no
-  se guardan ni se comparten**: solo qué franjas están ocupadas.
+  ocupada un rato), y siempre se pueden cambiar a mano.
+- **👁️ Cada una decide qué comparte.** Al tocar un día, en **«📋 Lo que tiene cada una»** se ven
+  tal cual los eventos que las demás han querido compartir (por ejemplo «📆 18:00–20:00 Clase de
+  inglés»). De cada cosa se elige:
+  - **👁️ Ver**: las demás ven qué es y la hora.
+  - **🔒 Solo ocupada**: solo ven que esa franja no puedes.
+  - **🚫 No compartir** (eventos de Google): ni siquiera cuenta como ocupada.
+
+  Se puede elegir **por calendario** al conectar Google, **evento a evento** en *Mis calendarios →
+  Google → 👁️ Elegir qué se ve*, o desde el propio día. En los eventos añadidos a mano, con la
+  casilla **«👁️ Que mis amigas vean qué es»**. De lo que no se comparte, el título y la hora no
+  salen del móvil de la persona.
+- **💼 Turno de trabajo**: en cada día se puede marcar el turno (mañana, tarde y/o noche); esas
+  franjas salen como «No puedo».
+- **👭 Vista «Todas» / «Solo yo»** en el calendario: en «Todas», cada día muestra una fila por
+  persona con su estado de mañana, tarde y noche; al tocar un día se ve el cuadro «Cómo lo
+  tenéis» con el detalle y las notas.
 - **📅 Calendario:** un calendario mensual en el que tocas un día y, para la mañana, la tarde y
   la noche, eliges **✅ Libre**, **🤔 Quizás** o **🙅 No puedo**. Puedes añadir una nota a cada día
   ("solo hasta las 19h"). Cada día muestra tres rayitas de colores con tu estado, un borde verde si
@@ -170,6 +189,8 @@ une primero desde Safari y luego la instala, solo tiene que volver a entrar con 
 - Para entrar en un grupo hay que conocer su código (8 caracteres al azar), y no se pueden
   ver los grupos que existen.
 - Cualquiera que tenga el código puede ver y editar el grupo, así que compártelo solo con tus amigas.
+- De los calendarios conectados solo se comparte lo que cada persona elige (👁️ / 🔒 / 🚫). Los
+  eventos en «🔒 solo ocupada» o «🚫 no compartir» no se suben con su título ni su hora.
 
 ## Más adelante
 

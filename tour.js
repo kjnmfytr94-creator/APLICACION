@@ -100,10 +100,27 @@ function steps() {
       html: `<p>Toca <strong>«📆 Mis calendarios»</strong>, arriba del calendario:</p>
              <ul class="tour-list">
                <li><strong>➕ Añadir un evento</strong>: médico, clases, un viaje… También los que se repiten cada semana.</li>
-               <li><strong>🗓️ Conectar Google Calendar</strong>: tus eventos marcan solos cuándo estás ocupada.</li>
+               <li><strong>🗓️ Conectar Google Calendar</strong>: tus eventos marcan solos cuándo estás ocupada, y puedes enseñar qué son.</li>
                <li><strong>🔄 Shifter</strong>: exporta tus turnos a Google Calendar desde Shifter y conecta Google aquí.</li>
              </ul>
-             <p>🔒 Nadie ve qué tienes: solo que esa franja no puedes. Si tu calendario cambia, pulsa <strong>«Sincronizar»</strong>.</p>`,
+             <p>Si tu calendario cambia, pulsa <strong>«Sincronizar»</strong>. ¿Usas el calendario de Apple? Pásalo a Google Calendar (en «Mis calendarios» te explicamos cómo).</p>`,
+    },
+    {
+      id: 'privacy',
+      art: `<div class="mock-col">
+              <div class="day-items mock-items"><div class="di-title">📋 Lo que tiene cada una</div>
+                <div class="di-item"><span class="di-icon">📆</span><span class="di-text"><span class="di-time">18:00–20:00</span> Clase de inglés</span><span class="mode-chips"><span class="mode-chip on">👁️</span><span class="mode-chip">🔒</span><span class="mode-chip">🚫</span></span></div>
+                <div class="di-item private"><span class="di-icon">📆</span><span class="di-text"><span class="di-time">10:00–11:00</span> Médico</span><span class="mode-chips"><span class="mode-chip">👁️</span><span class="mode-chip on">🔒</span><span class="mode-chip">🚫</span></span></div>
+              </div></div>`,
+      title: '👁️ Tú decides qué se ve',
+      html: `<p>Al tocar un día, en <strong>«📋 Lo que tiene cada una»</strong> verás los eventos que tus amigas han querido compartir, tal cual: <em>«📆 18:00–20:00 Clase de inglés»</em>.</p>
+             <p>De cada cosa tuya eliges qué ven las demás:</p>
+             <ul class="tour-list">
+               <li><strong>👁️ Ver</strong>: ven qué es y la hora.</li>
+               <li><strong>🔒 Solo ocupada</strong>: solo ven que esa franja no puedes.</li>
+               <li><strong>🚫 No compartir</strong>: ni siquiera cuenta como ocupada (solo en eventos de Google).</li>
+             </ul>
+             <p>Puedes elegirlo <strong>por calendario</strong> al conectar Google, <strong>evento a evento</strong> en «Mis calendarios → Google → 👁️ Elegir qué se ve», o desde el propio día. En los eventos que añades a mano, marca o desmarca <strong>«👁️ Que mis amigas vean qué es»</strong>.</p>`,
     },
     {
       id: 'quedar',

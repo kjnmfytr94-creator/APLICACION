@@ -661,3 +661,32 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 @media (max-height: 700px) {
   .tour-art { transform: scale(.85); margin-top: 0; margin-bottom: -10px; }
 }
+
+/* ── Lo que tiene cada una (hoja del día) ── */
+.day-items { background: var(--card-2); border: 1.5px solid var(--line); border-radius: 16px; padding: 10px 12px; margin-bottom: 8px; }
+.di-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.di-person { padding: 6px 0; border-top: 1px solid var(--line); }
+.di-person:first-of-type { border-top: 0; }
+.di-who { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 14px; flex-wrap: wrap; }
+.di-who .avatar { width: 24px; height: 24px; font-size: 11px; }
+.di-item { display: flex; align-items: center; gap: 8px; padding: 4px 0 4px 4px; font-size: 14px; }
+.di-item.private .di-text { opacity: .55; }
+.di-icon { flex: none; }
+.di-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.di-time { font-weight: 700; color: var(--accent); white-space: nowrap; }
+.mode-chips { display: inline-flex; gap: 4px; flex: none; }
+.mode-chip {
+  appearance: none; cursor: pointer; width: 34px; height: 30px; border-radius: 9px;
+  border: 1.5px solid var(--line); background: var(--card); font-size: 14px; opacity: .55;
+}
+.mode-chip.on { opacity: 1; border-color: var(--accent); background: var(--accent-soft); }
+.gev-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+.gev-row.ignore .connect-text { opacity: .45; text-decoration: line-through; }
+.mode-legend { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); background: var(--card-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 6px; }
+.mode-legend b { color: var(--text); }
+.cal-item-wrap { border-top: 1px solid var(--line); padding-bottom: 8px; }
+.cal-item-wrap:first-child { border-top: 0; }
+.cal-item-wrap .cal-item { border-top: 0; }
+.cal-mode { margin: 0 0 0 34px; width: calc(100% - 34px); font-size: 14px; padding: 8px 30px 8px 10px; }
+.mock-items { margin: 0; text-align: left; }
+.mock-items .mode-chip { display: inline-grid; place-items: center; }
