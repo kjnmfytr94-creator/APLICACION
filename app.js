@@ -10,6 +10,7 @@ import {
   googleEnabled, startGoogleAuth, consumeGoogleRedirect, getToken, disconnectGoogle, isAuthError,
   listCalendars, fetchGoogleBusy, DEFAULT_IGNORE,
 } from './gcal.js';
+import { openTour, tourSeen } from './tour.js';
 
 // ───────────────────────── Estado ─────────────────────────
 
@@ -352,7 +353,12 @@ function openGroup({ groupId, memberId }) {
     if (state.onboard) {
       const kind = state.onboard;
       state.onboard = null;
-      openConnectSheet({ welcome: kind });
+      // Primero la guía (si no la ha visto) y después conectar calendarios.
+      if (!tourSeen()) openTour({ then: () => openConnectSheet({ welcome: kind }) });
+      else openConnectSheet({ welcome: kind });
+    } else if (!state.pendingGoogle && !tourSeen() && !state.tourShown) {
+      state.tourShown = true;
+      openTour();
     } else if (state.pendingGoogle) {
       const then = state.pendingGoogle;
       state.pendingGoogle = null;
@@ -379,6 +385,7 @@ function renderGroup() {
         <header class="top">
           <button class="top-title" data-action="switch-group"><h1></h1><p></p></button>
           <div class="top-actions">
+            <button class="icon-btn help-btn" data-action="help" aria-label="Cómo funciona la app">?</button>
             <button class="icon-btn bell" data-action="avisos" aria-label="Novedades">🔔<span class="badge" hidden></span></button>
             <button class="top-me" data-action="profile" aria-label="Mi perfil"></button>
           </div>
@@ -479,6 +486,12 @@ function viewCal() {
   const calStatus = [c.gcalAt ? '📆 Google ✓' : '', nEvents ? `📌 ${nEvents} ${nEvents === 1 ? 'evento' : 'eventos'}` : ''].filter(Boolean).join(' · ');
   return `
     ${!marked && !calStatus ? `<div class="notice">👋 ¡Hola, ${esc(mine.name)}! Toca un día para decir si puedes por la mañana, por la tarde o por la noche.</div>` : ''}
+    ${!isStandalone() && !LS.get('nosvemos.installHint.off', false) ? `
+    <div class="install-hint">
+      <button class="install-main" data-action="install-help"><span class="install-icon">📲</span>
+        <span><strong>Ponla en tu pantalla de inicio</strong><span class="muted small">Toca aquí y te explico cómo, paso a paso</span></span></button>
+      <button class="icon-btn install-x" data-action="install-dismiss" aria-label="Cerrar aviso">✕</button>
+    </div>` : ''}
     <button class="cal-connect" data-action="connect">
       <span>📆 <strong>Mis calendarios</strong> <span class="muted small">${calStatus || 'Conecta Google, Shifter o añade eventos'}</span></span><span class="chev">›</span>
     </button>
@@ -1004,13 +1017,9 @@ function viewGrupo() {
 
     ${!isStandalone() ? `
     <section class="card">
-      <h2>📲 Instálala en tu iPhone</h2>
-      <ol class="steps">
-        <li>Abre esta página en <strong>Safari</strong>.</li>
-        <li>Pulsa el botón <strong>Compartir</strong> <span class="ios-share">⬆︎</span>.</li>
-        <li>Elige <strong>«Añadir a pantalla de inicio»</strong>.</li>
-      </ol>
-      <p class="muted small">La primera vez que la abras desde el icono, vuelve a entrar con el código y toca tu nombre para recuperar tus cosas.</p>
+      <h2>📲 Ponla en tu pantalla de inicio</h2>
+      <p class="muted small">Así la tendrás como una app más. Te lo explico paso a paso (iPhone y Android).</p>
+      <button class="btn primary block" data-action="install-help">Ver cómo se hace</button>
     </section>` : ''}
 
     <section class="card">
@@ -1025,6 +1034,7 @@ function viewGrupo() {
 
     <section class="card">
       <h2>Opciones</h2>
+      <button class="list-btn" data-action="help"><span>❓ Cómo funciona la app (guía)</span><span class="chev">›</span></button>
       <button class="list-btn" data-action="profile"><span>👤 Mi perfil (nombre, color, cumple)</span><span class="chev">›</span></button>
       <button class="list-btn" data-action="connect"><span>📆 Mis calendarios (Google, Shifter, eventos)</span><span class="chev">›</span></button>
       <button class="list-btn" data-action="switch-group"><span>👭 Mis grupos</span><span class="chev">›</span></button>
@@ -1543,6 +1553,11 @@ function onAction(b) {
         });
       }
       break;
+
+    // guía
+    case 'help': if (sheet.open) closeSheet(); openTour(); break;
+    case 'install-help': if (sheet.open) closeSheet(); openTour({ startId: 'install' }); break;
+    case 'install-dismiss': LS.set('nosvemos.installHint.off', true); renderGroup(); break;
 
     // mis calendarios
     case 'connect': openConnectSheet({ welcome: state.sheetKind ? state.welcomeKind : null }); break;
