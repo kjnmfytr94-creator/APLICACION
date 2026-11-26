@@ -1,7 +1,7 @@
 // Service worker: permite abrir la app aunque no haya cobertura.
 // Primero intenta la red (para tener siempre la última versión) y, si falla, usa la copia guardada.
 
-const CACHE = 'nosvemos-v9';
+const CACHE = 'nosvemos-v10';
 const SHELL = [
   './',
   './index.html',
@@ -33,8 +33,10 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
+  // Siempre preguntamos al servidor si hay una versión nueva (sin usar la copia del navegador).
+  const fresh = new Request(e.request.url, { cache: 'no-cache', credentials: 'same-origin' });
   e.respondWith(
-    fetch(e.request)
+    fetch(fresh)
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
