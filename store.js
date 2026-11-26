@@ -5,7 +5,8 @@
 // Estructura:
 //  groups/{grupo}                      { name }
 //  groups/{grupo}/members/{persona}    { name, color, birthday 'MM-DD', free { 'AAAA-MM-DD_t': 'y'|'m'|'n' }, notes { 'AAAA-MM-DD': texto },
-//                                        events { id: { title, day, allDay, start, end, weekly } }, gcal { 'AAAA-MM-DD_t': 'n'|'m' }, gcalAt }
+//                                        events { id: { title, day, allDay, start, end, weekly } }, gcal { 'AAAA-MM-DD_t': 'n'|'m' }, gcalAt,
+//                                        shifts { 'AAAA-MM-DD': ['m','t','n'] } }
 //  groups/{grupo}/plans/{plan}         { title, kind 'fixed'|'poll', day, slot, time, place, options[], votes{}, going{}, createdBy, at, msgCount, photoCount, cover }
 //  groups/{grupo}/plans/{plan}/messages/{id}   { by, text, at }
 //  groups/{grupo}/plans/{plan}/photos/{id}     { by, at, thumb }
@@ -66,9 +67,9 @@ async function createFirebaseStore() {
     async getMembers(g) {
       return list(await fs.getDocs(fs.collection(db, 'groups', g, 'members')));
     },
-    async addMember(g, { name, color, birthday, events, gcal, gcalAt }) {
+    async addMember(g, { name, color, birthday, events, gcal, gcalAt, shifts }) {
       const id = newId();
-      const data = { name, color, free: {}, notes: {}, events: events || {}, gcal: gcal || {}, at: Date.now() };
+      const data = { name, color, free: {}, notes: {}, events: events || {}, gcal: gcal || {}, shifts: shifts || {}, at: Date.now() };
       if (birthday) data.birthday = birthday;
       if (gcalAt) data.gcalAt = gcalAt;
       await fs.setDoc(memberRef(g, id), data);
@@ -203,10 +204,10 @@ function createLocalStore() {
     async getMembers(g) {
       return structuredClone(entries(group(g).members));
     },
-    async addMember(g, { name, color, birthday, events, gcal, gcalAt }) {
+    async addMember(g, { name, color, birthday, events, gcal, gcalAt, shifts }) {
       const id = newId();
       group(g).members[id] = {
-        name, color, free: {}, notes: {}, events: events || {}, gcal: gcal || {}, at: Date.now(),
+        name, color, free: {}, notes: {}, events: events || {}, gcal: gcal || {}, shifts: shifts || {}, at: Date.now(),
         ...(birthday ? { birthday } : {}), ...(gcalAt ? { gcalAt } : {}),
       };
       commit();

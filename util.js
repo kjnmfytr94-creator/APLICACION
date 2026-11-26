@@ -144,6 +144,13 @@ export function derivedOf(member) {
   for (const [k, v] of Object.entries(ev)) {
     if (!acc[k] || (acc[k].s === 'm' && v.s === 'n')) acc[k] = { ...v, src: 'event' };
   }
+  // Turnos de trabajo marcados en cada día: esa franja es «No puedo».
+  for (const [day, list] of Object.entries(member.shifts || {})) {
+    for (const sid of Array.isArray(list) ? list : []) {
+      const slot = SLOTS.find((x) => x.id === sid);
+      if (slot) acc[`${day}_${sid}`] = { s: 'n', label: `Turno de ${slot.label.toLowerCase()}`, src: 'shift' };
+    }
+  }
   derivedCache.set(member, acc);
   return acc;
 }

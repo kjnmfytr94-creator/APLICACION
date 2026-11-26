@@ -528,3 +528,15 @@ input[type="date"], input[type="time"] { min-height: 46px; }
 
 .big-btn { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 18px; padding: 16px; }
 .big-btn .avatar { border-color: transparent; }
+
+/* Turno de trabajo en la hoja del día */
+.shift-box { background: var(--card-2); border: 1.5px solid var(--line); border-radius: 16px; padding: 12px; margin-bottom: 6px; }
+.shift-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.shift-chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.shift-chip {
+  appearance: none; cursor: pointer; border-radius: 12px; padding: 10px 4px;
+  border: 1.5px solid var(--line); background: var(--card); font-size: 14px; font-weight: 600; color: var(--muted);
+  transition: background .12s, transform .08s;
+}
+.shift-chip:active { transform: scale(.95); }
+.shift-chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }

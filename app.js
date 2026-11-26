@@ -47,9 +47,14 @@ const setMemberships = (v) => LS.set('nosvemos.groups', v);
 // Mi calendario personal (eventos a mano + Google). Se guarda en este móvil y se copia
 // a todos mis grupos para que las demás vean cuándo estoy ocupada.
 const CAL_KEY = 'nosvemos.mycal';
-const myCal = () => ({ events: {}, gcal: {}, gcalAt: null, gcalCals: [], gcalIgnore: DEFAULT_IGNORE, ...LS.get(CAL_KEY, {}) });
+const myCal = () => ({ events: {}, shifts: {}, gcal: {}, gcalAt: null, gcalCals: [], gcalIgnore: DEFAULT_IGNORE, ...LS.get(CAL_KEY, {}) });
 const saveMyCal = (patch) => LS.set(CAL_KEY, { ...myCal(), ...patch });
-const calPayload = () => { const c = myCal(); return { events: c.events, gcal: c.gcal, gcalAt: c.gcalAt || null }; };
+const calPayload = () => {
+  const c = myCal();
+  const tk = todayKey();
+  const shifts = Object.fromEntries(Object.entries(c.shifts).filter(([d, l]) => d >= tk && l.length));
+  return { events: c.events, shifts, gcal: c.gcal, gcalAt: c.gcalAt || null };
+};
 
 async function publishMyCal() {
   const payload = calPayload();
@@ -61,6 +66,7 @@ async function publishMyCal() {
 function adoptCalFrom(member) {
   const c = myCal();
   if (!Object.keys(c.events).length && member?.events) c.events = member.events;
+  if (!Object.keys(c.shifts).length && member?.shifts) c.shifts = member.shifts;
   if (!c.gcalAt && member?.gcalAt) { c.gcal = member.gcal || {}; c.gcalAt = member.gcalAt; }
   LS.set(CAL_KEY, c);
 }
@@ -443,7 +449,8 @@ function viewCal() {
     const k = dayKey(d);
     const past = k < tk;
     const info = past ? null : dayInfo(k);
-    const marks = past ? '' : `${info.bdays.length ? '🎂' : ''}${info.plans.length ? '🎉' : ''}${info.allSure ? '✨' : ''}`;
+    const hasShift = !past && (mine.shifts?.[k] || []).length > 0;
+    const marks = past ? '' : `${hasShift ? '💼' : ''}${info.bdays.length ? '🎂' : ''}${info.plans.length ? '🎉' : ''}${info.allSure ? '✨' : ''}`;
     const wd = d.getDay();
     cells += `
       <button class="cell ${past ? 'past' : ''} ${k === tk ? 'today' : ''} ${wd === 0 || wd === 6 ? 'weekend' : ''} ${info?.allSure ? 'match' : info?.allPossible ? 'match-maybe' : ''}"
@@ -478,7 +485,7 @@ function viewCal() {
       <div><span class="bars demo"><i class="bar yes"></i><i class="bar maybe"></i><i class="bar no"></i></span> Tu mañana, tarde y noche:
         <span class="dot yes"></span> libre <span class="dot maybe"></span> quizás <span class="dot no"></span> no puedo</div>
       <div><span class="legend-box match"></span> Podéis todas ✨ <span class="legend-box match-maybe"></span> Podríais todas (con algún quizás)</div>
-      <div>🎉 Hay plan · 🎂 Cumpleaños</div>
+      <div>💼 Tienes turno · 🎉 Hay plan · 🎂 Cumpleaños</div>
     </div>`;
 }
 
@@ -491,6 +498,7 @@ function openDaySheet(k) {
       <div class="sheet-grab"></div>
       <h2>${esc(longDay(k))}</h2>
       <div id="day-extra"></div>
+      <div id="day-shift"></div>
       <div id="day-slots"></div>
       <label>📝 Nota para este día <span class="muted">(opcional)</span>
         <input id="day-note" maxlength="80" enterkeyhint="done" placeholder="Solo hasta las 19h, estoy fuera…" value="${esc(note)}"></label>
@@ -508,6 +516,15 @@ function renderDaySheetParts() {
   const box = sheet.querySelector('#day-slots');
   if (!box || !state.data) return;
   const mine = me();
+  const myShifts = new Set(myCal().shifts[k] || []);
+  sheet.querySelector('#day-shift').innerHTML = `
+    <div class="shift-box">
+      <div class="shift-head"><strong>💼 Turno de trabajo</strong><span class="muted tiny">Puedes marcar varios</span></div>
+      <div class="shift-chips">${SLOTS.map((s) => `
+        <button type="button" class="shift-chip ${myShifts.has(s.id) ? 'on' : ''}" data-action="toggle-shift" data-slot="${s.id}" aria-pressed="${myShifts.has(s.id)}">
+          ${myShifts.has(s.id) ? '✓' : s.emoji} ${s.label}</button>`).join('')}
+      </div>
+    </div>`;
   const others = state.data.members.filter((m) => m.id !== state.memberId);
   box.innerHTML = SLOTS.map((s) => {
     const key = `${k}_${s.id}`;
@@ -515,7 +532,8 @@ function renderDaySheetParts() {
     const auto = derivedOf(mine)[key];
     const yes = others.filter((o) => statusOf(o, key) === 'y');
     const maybe = others.filter((o) => statusOf(o, key) === 'm');
-    const autoText = auto && `${auto.src === 'gcal' ? '📆' : '📌'} ${esc(auto.label)}: ${auto.s === 'n' ? 'ocupada' : 'ocupada un rato'}`;
+    const autoIcon = { gcal: '📆', shift: '💼', event: '📌' }[auto?.src] || '📌';
+    const autoText = auto && (auto.src === 'shift' ? `${autoIcon} ${esc(auto.label)}` : `${autoIcon} ${esc(auto.label)}: ${auto.s === 'n' ? 'ocupada' : 'ocupada un rato'}`);
     return `
       <div class="slot-row">
         <div class="slot-row-head">
@@ -1396,6 +1414,20 @@ function onAction(b) {
       const next = current === b.dataset.s ? null : b.dataset.s;
       if (navigator.vibrate) navigator.vibrate(8);
       busy(null, () => s.setStatus(g, state.memberId, key, next));
+      break;
+    }
+    case 'toggle-shift': {
+      const day = state.sheetDay;
+      const c = myCal();
+      const set = new Set(c.shifts[day] || []);
+      if (set.has(b.dataset.slot)) set.delete(b.dataset.slot); else set.add(b.dataset.slot);
+      const order = SLOTS.map((x) => x.id).filter((id) => set.has(id));
+      const shifts = { ...c.shifts };
+      if (order.length) shifts[day] = order; else delete shifts[day];
+      saveMyCal({ shifts });
+      if (navigator.vibrate) navigator.vibrate(8);
+      renderDaySheetParts();
+      busy(null, () => publishMyCal());
       break;
     }
     case 'day-all':
